@@ -6,6 +6,7 @@ import (
 	"github.com/xiagoo/gotools/constx"
 	"github.com/xiagoo/gotools/httpx"
 	"math/rand"
+	"strconv"
 	"strings"
 )
 
@@ -50,10 +51,18 @@ type MultiArea struct {
 	District string `json:"district"`
 }
 
+func getAgent() *httpx.Agent {
+	agent := httpx.NewAgent()
+	agent.AddHeader(map[string]string{
+		"User-Agent": constx.UserAgentList[rand.Intn(len(constx.UserAgentList))],
+	})
+	return agent
+}
+
 func GetIpInfo(ip, accuracyType string) (*IpInfo, error) {
 	agent := httpx.NewAgent()
 	agent.AddHeader(map[string]string{
-		"User-Agent":constx.UserAgentList[rand.Intn(len(constx.UserAgentList))],
+		"User-Agent": constx.UserAgentList[rand.Intn(len(constx.UserAgentList))],
 	})
 	resp, err := agent.Get(fmt.Sprintf("https://mall.ipplus360.com/center/ip/api?ip=%s&type=%s&coordsys=BD09", ip, accuracyType)).GetResponseBody(nil)
 	if err != nil {
@@ -66,6 +75,65 @@ func GetIpInfo(ip, accuracyType string) (*IpInfo, error) {
 	}
 	return ipInfo, nil
 }
+
+//https://www.123cha.com
+func GetIpInfoBy123cha(ip string) ([]string, error) {
+	ipInfos := []string{}
+	for i := 0; i < 4; i++ {
+		resp, err := getAgent().Post("https://www.123cha.com/ip/get.php").AddData(map[string]string{
+			"ip":  ip,
+			"job": strconv.Itoa(i),
+		}).GetResponseBody(nil)
+		if err != nil {
+			continue
+		}
+		ipInfos = append(ipInfos, string(resp))
+	}
+	return ipInfos, nil
+}
+
+type SBInfo struct {
+	Organization    string `json:"organization"`
+	Longitude       string `json:"longitude"`
+	City            string `json:"city"`
+	TimeZone        string `json:"timezone"`
+	Isp             string `json:"isp"`
+	Offset          int    `json:"offset"	`
+	Region          string `json:"region"`
+	Asn             int    `json:"asn"`
+	AsnOrganization string `json:"asn_organization"`
+	Country         string `json:"country"`
+	Ip              string `json:"ip"`
+	Latitude        string `json:"latitude"`
+	ContinentCode   string `json:"continent_code"`
+	CountryCode     string `json:"country_code"`
+	RegionCode      string `json:"region_code"`
+}
+
+//https://ip.sb/api/
+func GetIpInfoBySB(ip string) (*SBInfo, error) {
+	resp, err := getAgent().Get(fmt.Sprintf("https://api.ip.sb/geoip/%s", ip)).GetResponseBody(nil)
+	if err != nil {
+		return nil, err
+	}
+	sbInfo := &SBInfo{}
+	err = json.Unmarshal(resp, sbInfo)
+	if err != nil {
+		return nil, err
+	}
+	return sbInfo, nil
+}
+/*
+获取本机ip
+curl ip.sb
+'http://ip.6655.com/ip.aspx',
+'http://members.3322.org/dyndns/getip',
+'http://icanhazip.com/',
+'http://ident.me/',
+'http://ipecho.net/plain',
+'http://whatismyip.akamai.com/',
+]
+ */
 
 func GetAddress(ip string) string {
 	address := ""
@@ -81,6 +149,14 @@ func GetAddress(ip string) string {
 		}
 		multiArea := ipInfo.Data.MultiArea[0]
 		address = fmt.Sprintf("%s%s%s", multiArea.Prov, multiArea.City, multiArea.District)
+	}
+
+	if strings.Contains(address, "*") {
+		ipInfo, err := GetIpInfoBy123cha(ip)
+		if err != nil {
+			return address
+		}
+		address = ipInfo[0]
 	}
 	return address
 }
